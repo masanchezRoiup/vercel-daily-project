@@ -35,6 +35,9 @@ export async function getArticleSlugById(id: string): Promise<string | null> {
   return article?.slug ?? null;
 }
 
+// No arguments — one global cache entry shared across all callers.
+// Passing an exclude list would create a distinct cache key per article,
+// turning every page visit into a cache miss. Filtering is the sidebar's responsibility.
 export async function getTrending(): Promise<Article[]> {
   "use cache";
   cacheLife({ stale: 300, revalidate: 300, expire: 86400 });

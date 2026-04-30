@@ -73,7 +73,7 @@ export default async function ArticlePage({
   const sidebar = (
     <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">
       <Suspense fallback={<TrendingSidebarSkeleton />}>
-        <TrendingSidebar exclude={[article.id]} />
+        <TrendingSidebar />
       </Suspense>
     </div>
   );

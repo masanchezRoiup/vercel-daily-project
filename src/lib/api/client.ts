@@ -122,10 +122,8 @@ export async function fetchArticleById(id: string): Promise<Article | null> {
   return fetchArticleByParam(id);
 }
 
-export async function fetchTrending(exclude?: string[]): Promise<Article[]> {
-  const { data } = await apiFetch<Article[]>("/articles/trending", {
-    query: exclude && exclude.length ? { exclude: exclude.join(",") } : undefined,
-  });
+export async function fetchTrending(): Promise<Article[]> {
+  const { data } = await apiFetch<Article[]>("/articles/trending");
   return data;
 }
 

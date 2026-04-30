@@ -8,17 +8,17 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Async Server Component streamed inside a Suspense boundary on the article page.
-// Trending is fetched as one global cached list so it stays stable while moving
-// between articles; the current article is filtered locally.
-export async function TrendingSidebar({ exclude }: { exclude?: string[] } = {}) {
+//
+// No props by design: "use cache" generates the cache key from the function arguments,
+// so any prop (e.g. excludeId) creates a separate entry per article — defeating the
+// cache entirely when the API returns random results per request. A single shared
+// 5-minute snapshot is far more stable than per-article fresh fetches.
+export async function TrendingSidebar() {
   "use cache";
   cacheLife({ stale: 300, revalidate: 300, expire: 86400 });
   cacheTag("trending");
 
-  const excludedIds = new Set(exclude);
-  const articles = (await getTrending())
-    .filter((article) => !excludedIds.has(article.id))
-    .slice(0, 4);
+  const articles = (await getTrending()).slice(0, 4);
 
   return (
     <aside
