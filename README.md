@@ -42,7 +42,7 @@ src/
 │   ├── actions/
 │   │   └── subscription.ts          # "use server" — subscribe / unsubscribe
 │   ├── articles/[slug]/
-│   │   ├── page.tsx                 # Paywall branch vs full article
+│   │   ├── page.tsx                 # ArticleGate (Suspense) → Paywall or full article
 │   │   ├── loading.tsx
 │   │   ├── error.tsx
 │   │   └── not-found.tsx
@@ -86,14 +86,26 @@ Every read from the external API lives in `src/lib/data/*` and starts with `"use
 | `getFeaturedArticles` | `hours` | `articles` |
 | `getArticle(slug)` | `days` | `articles`, `article:${slug}` |
 | `getArticleSlugById(id)` | `days` | `articles`, `article-id:${id}` |
-| `getTrending` | `{stale:120, revalidate:120, expire:240}` | `trending` |
-| `getBreaking` | `{stale:120, revalidate:120, expire:240}` | `breaking` |
+| `getTrending` | `{stale:300, revalidate:300, expire:86400}` | `trending` |
+| `getBreaking` | `{stale:300, revalidate:300, expire:86400}` | `breaking` |
 | `getCategories` | `days` | `categories` |
 | `getSubscription(token)` | `{stale:30, revalidate:30, expire:60}` | `subscription:${token}` |
 | `listArticlesPage` | (uncached — paginated default listing) | n/a |
 | `searchArticles` | (uncached — per-query dynamic) | n/a |
 
-Trending, breaking news, and subscription use short custom lifetimes: trending because the API returns fresh random picks per request, so the app caches one shared trending set for two minutes to keep article-to-article navigation stable; breaking news to avoid a live API call on every home view while staying near-fresh; subscription because it has to reflect the user's real server-side state without round-tripping every page view.
+Trending, breaking news, and subscription use short custom lifetimes: trending because the API returns fresh random picks per request, so the app caches one shared trending set for five minutes to keep article-to-article navigation stable; breaking news to avoid a live API call on every home view while staying near-fresh; subscription because it has to reflect the user's real server-side state without round-tripping every page view.
+
+#### Two-layer caching strategy
+
+`"use cache"` alone is in-memory LRU — it does not survive a cold start or a new serverless instance on Vercel. To get durable caching across instances, fetch calls also set `next: { revalidate, tags }` which writes to Next.js's filesystem-backed Data Cache:
+
+| Fetch | `next.revalidate` |
+|---|---|
+| `/articles/trending` | 300 s |
+| `/breaking-news` | 300 s |
+| `/articles/:param` | 86400 s |
+
+Warm instance → `"use cache"` hit, fetch never runs. Cold start → `"use cache"` miss → fetch runs → Data Cache hit, API not called. Both layers share the same tag names so `updateTag()` purges both at once.
 
 ### `proxy.ts`
 
@@ -123,9 +135,15 @@ Only three client components:
 
 Everything else is a server component. Subscription status in the header reads `cookies()` server-side and streams via Suspense — no hydration flicker.
 
-### Paywall
+### Paywall + streaming on article pages
 
-Branching happens in `src/app/articles/[slug]/page.tsx`. Non-subscribers get `<Paywall article={...} />` which renders headline + image + first paragraph only — the full `ContentBlock[]` body **never reaches the client HTML**. Subscribers get the full `<ArticleContent>` renderer plus the trending sidebar.
+The article route (`/articles/[slug]`) is dynamic because it reads `cookies()` via `isSubscribed()`. To avoid blocking the entire render on the subscription check, the page uses a dedicated `ArticleGate` Server Component wrapped in `<Suspense>`:
+
+1. `ArticlePage` resolves `getArticle(slug)` — cached, fast — then immediately flushes the page grid with a skeleton fallback.
+2. `ArticleGate` resolves `isSubscribed()` (cookie read + short-cached API call) asynchronously. When it resolves it replaces the skeleton with either `<Paywall>` or the full article body.
+3. `TrendingSidebar` streams in its own independent `<Suspense>` — it does not wait for the subscription check.
+
+Non-subscribers get `<Paywall article={...} />` which renders headline + image + first paragraph only — the full `ContentBlock[]` body **never reaches the client HTML**. Subscribers get `<ArticleContent>` plus the trending sidebar.
 
 ### Search
 
@@ -186,7 +204,7 @@ Open <http://localhost:3000>.
 
 ## Known trade-offs
 
-- **Trending changes between navigations** because the cache lifetime is 30 seconds. Longer would be smoother but less "live-feeling" and less faithful to the API's documented behavior.
+- **Trending changes between navigations** in the first cold-start request per serverless instance; after that, the Data Cache (`next: { revalidate: 300 }`) keeps the same set for 5 minutes across all instances.
 - **No token reuse on unsubscribe**: the cookie is deleted so the next Subscribe creates a fresh anonymous token.
 - **Proxy is scoped to hypothetical private routes**. It checks for `vd_session` on `/account` and `/billing`, but article pages remain reachable so they can show an inline paywall.
 - **No dynamic OG per article**. Article OG uses the article's own hero image — cheaper than generating per-article PNGs and still produces a distinct preview per URL.
@@ -232,14 +250,26 @@ Toda lectura a la API vive en `src/lib/data/*` y empieza con `"use cache"`. El p
 | `getFeaturedArticles` | `hours` | `articles` |
 | `getArticle(slug)` | `days` | `articles`, `article:${slug}` |
 | `getArticleSlugById(id)` | `days` | `articles`, `article-id:${id}` |
-| `getTrending` | `{stale:120, revalidate:120, expire:240}` | `trending` |
-| `getBreaking` | `{stale:120, revalidate:120, expire:240}` | `breaking` |
+| `getTrending` | `{stale:300, revalidate:300, expire:86400}` | `trending` |
+| `getBreaking` | `{stale:300, revalidate:300, expire:86400}` | `breaking` |
 | `getCategories` | `days` | `categories` |
 | `getSubscription(token)` | `{stale:30, revalidate:30, expire:60}` | `subscription:${token}` |
 | `listArticlesPage` | (sin caché — listado paginado por defecto) | n/a |
 | `searchArticles` | (sin caché — dinámico por query) | n/a |
 
-Trending, breaking news y subscription usan TTL corto a propósito: trending porque la API devuelve aleatorios por request, así que la app cachea una única lista compartida durante dos minutos para mantener estable la navegación entre artículos; breaking news para evitar una llamada viva a la API en cada visita a home manteniéndose casi fresco; subscription porque debe reflejar el estado real del servidor sin pegar en cada navegación.
+Trending, breaking news y subscription usan TTL corto a propósito: trending porque la API devuelve aleatorios por request, así que la app cachea una única lista compartida durante cinco minutos para mantener estable la navegación entre artículos; breaking news para evitar una llamada viva a la API en cada visita a home manteniéndose casi fresco; subscription porque debe reflejar el estado real del servidor sin pegar en cada navegación.
+
+#### Estrategia de caché en dos capas
+
+`"use cache"` solo es LRU in-memory — no sobrevive cold starts ni instancias serverless distintas en Vercel. Para durabilidad entre instancias, los fetch calls también usan `next: { revalidate, tags }`, que escribe en el Data Cache de Next.js (filesystem-backed):
+
+| Fetch | `next.revalidate` |
+|---|---|
+| `/articles/trending` | 300 s |
+| `/breaking-news` | 300 s |
+| `/articles/:param` | 86400 s |
+
+Instancia caliente → hit de `"use cache"`, el fetch no llega a ejecutarse. Cold start → miss de `"use cache"` → fetch ejecuta → hit del Data Cache, la API no se llama. Ambas capas comparten los mismos nombres de tag para que `updateTag()` invalide las dos a la vez.
 
 ### `proxy.ts`
 
@@ -269,9 +299,15 @@ Solo tres componentes cliente:
 
 Todo lo demás es server component. El estado de suscripción en el header lee `cookies()` en el servidor y fluye por Suspense — sin parpadeo de hidratación.
 
-### Paywall
+### Paywall + streaming en páginas de artículo
 
-La rama vive en `src/app/articles/[slug]/page.tsx`. Los no-suscritos reciben `<Paywall article={...} />` con headline + imagen + primer párrafo. **El body completo (`ContentBlock[]`) nunca llega al HTML del cliente**. Los suscritos ven `<ArticleContent>` completo más el trending sidebar.
+La ruta `/articles/[slug]` es dinámica porque lee `cookies()` vía `isSubscribed()`. Para no bloquear el render completo en el chequeo de suscripción, la página usa un Server Component dedicado `ArticleGate` envuelto en `<Suspense>`:
+
+1. `ArticlePage` resuelve `getArticle(slug)` — cacheado, rápido — y flushea el grid con un skeleton inmediatamente.
+2. `ArticleGate` resuelve `isSubscribed()` (lectura de cookie + llamada API con caché corta) de forma asíncrona. Al resolverse, reemplaza el skeleton con `<Paywall>` o el artículo completo.
+3. `TrendingSidebar` hace streaming en su propio `<Suspense>` independiente — no espera al chequeo de suscripción.
+
+Los no-suscritos reciben `<Paywall article={...} />` con headline + imagen + primer párrafo. **El body completo (`ContentBlock[]`) nunca llega al HTML del cliente**. Los suscritos ven `<ArticleContent>` completo más el trending sidebar.
 
 ### Search
 
@@ -332,7 +368,7 @@ Abrir <http://localhost:3000>.
 
 ## Trade-offs conocidos
 
-- **Trending cambia entre navegaciones** porque la TTL es de 30 s. Más largo sería más estable pero menos "en vivo" y menos fiel al comportamiento documentado de la API.
+- **Trending cambia solo en el primer cold-start** de cada instancia serverless; después, el Data Cache (`next: { revalidate: 300 }`) mantiene el mismo set 5 minutos en todas las instancias.
 - **Sin reutilización de token al desuscribirse**: la cookie se elimina para que el próximo Subscribe cree un token anónimo nuevo.
 - **Proxy limitado a rutas privadas hipotéticas**. Comprueba `vd_session` en `/account` y `/billing`, pero los artículos siguen siendo accesibles para mostrar el paywall inline.
 - **No hay OG dinámico por artículo**. El OG de artículo usa la imagen hero del propio artículo — más barato que generar PNG por URL y sigue siendo único por URL.
