@@ -7,6 +7,7 @@ import { getArticle } from "@/lib/data/articles";
 import { isSubscribed } from "@/lib/session";
 import { readMinutes } from "@/lib/utils/read-minutes";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ArticleContent } from "@/components/article-content";
 import { Paywall } from "@/components/paywall";
 import {
@@ -18,6 +19,7 @@ import {
   categoryDotClass,
   formatCategory,
 } from "@/lib/category-style";
+import type { Article } from "@/lib/data/types";
 
 export async function generateMetadata({
   params,
@@ -57,6 +59,93 @@ export async function generateMetadata({
   };
 }
 
+// Resolves subscription status and renders either the paywall or the full article body.
+// Isolated in its own Server Component so it can stream inside a Suspense boundary
+// while the article header and image are already visible to the user.
+async function ArticleGate({ article }: { article: Article }) {
+  const subscribed = await isSubscribed();
+
+  if (!subscribed) {
+    return <Paywall article={article} />;
+  }
+
+  const minutes = readMinutes(article.content);
+
+  return (
+    <article className="min-w-0">
+      <header className="mb-8 max-w-4xl">
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <Badge
+            variant="outline"
+            className={categoryBadgeClass(
+              article.category,
+              "gap-1.5 rounded-full border px-2.5 py-1",
+            )}
+          >
+            <span className={categoryDotClass(article.category, "size-1.5 rounded-full")} />
+            {formatCategory(article.category)}
+          </Badge>
+          <span className="font-mono">{minutes} min read</span>
+          <span aria-hidden>·</span>
+          <time dateTime={article.publishedAt} className="font-mono tabular-nums">
+            {new Date(article.publishedAt).toLocaleDateString(undefined, {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
+          </time>
+        </div>
+        <h1 className="max-w-[calc(100vw-2rem)] wrap-break-word font-heading text-4xl font-semibold leading-tight tracking-tight sm:max-w-4xl sm:text-6xl sm:leading-[0.98]">
+          {article.title}
+        </h1>
+        <p className="mt-5 max-w-3xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
+          {article.excerpt}
+        </p>
+        <p className="mt-4 font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground">
+          by {article.author.name}
+        </p>
+      </header>
+
+      <div className="relative mb-10 aspect-video overflow-hidden rounded-2xl border border-border/80 bg-muted shadow-[0_22px_65px_oklch(0.18_0.008_260/0.08)]">
+        <Image
+          src={article.image}
+          alt=""
+          fill
+          loading="eager"
+          fetchPriority="high"
+          sizes="(min-width: 1024px) 680px, 100vw"
+          className="object-cover"
+        />
+      </div>
+
+      <div className="max-w-3xl">
+        <ArticleContent blocks={article.content} />
+      </div>
+    </article>
+  );
+}
+
+function ArticleGateSkeleton() {
+  return (
+    <div className="min-w-0">
+      <div className="mb-8 max-w-4xl space-y-4">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-14 w-full max-w-3xl" />
+        <Skeleton className="h-6 w-2/3 max-w-2xl" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+      <Skeleton className="mb-10 aspect-video w-full rounded-2xl" />
+      <div className="max-w-3xl space-y-3">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-11/12" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-4/5" />
+      </div>
+    </div>
+  );
+}
+
 export default async function ArticlePage({
   params,
 }: {
@@ -67,82 +156,17 @@ export default async function ArticlePage({
 
   if (!article) notFound();
 
-  // Paywall gate — non-subscribers see only headline + image + teaser; full content for active subscribers only.
-  const subscribed = await isSubscribed();
-
-  const sidebar = (
-    <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">
-      <Suspense fallback={<TrendingSidebarSkeleton />}>
-        <TrendingSidebar />
-      </Suspense>
-    </div>
-  );
-
-  if (!subscribed) {
-    return (
-      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <Paywall article={article} />
-        {sidebar}
-      </div>
-    );
-  }
-
-  const minutes = readMinutes(article.content);
-
   return (
     <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <article className="min-w-0">
-        <header className="mb-8 max-w-4xl">
-          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            <Badge
-              variant="outline"
-              className={categoryBadgeClass(
-                article.category,
-                "gap-1.5 rounded-full border px-2.5 py-1",
-              )}
-            >
-              <span className={categoryDotClass(article.category, "size-1.5 rounded-full")} />
-              {formatCategory(article.category)}
-            </Badge>
-            <span className="font-mono">{minutes} min read</span>
-            <span aria-hidden>·</span>
-            <time dateTime={article.publishedAt} className="font-mono tabular-nums">
-              {new Date(article.publishedAt).toLocaleDateString(undefined, {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </time>
-          </div>
-          <h1 className="max-w-[calc(100vw-2rem)] break-words font-heading text-4xl font-semibold leading-tight tracking-tight sm:max-w-4xl sm:text-6xl sm:leading-[0.98]">
-            {article.title}
-          </h1>
-          <p className="mt-5 max-w-3xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
-            {article.excerpt}
-          </p>
-          <p className="mt-4 font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground">
-            by {article.author.name}
-          </p>
-        </header>
+      <Suspense fallback={<ArticleGateSkeleton />}>
+        <ArticleGate article={article} />
+      </Suspense>
 
-        <div className="relative mb-10 aspect-video overflow-hidden rounded-2xl border border-border/80 bg-muted shadow-[0_22px_65px_oklch(0.18_0.008_260/0.08)]">
-          <Image
-            src={article.image}
-            alt=""
-            fill
-            loading="eager"
-            fetchPriority="high"
-            sizes="(min-width: 1024px) 680px, 100vw"
-            className="object-cover"
-          />
-        </div>
-
-        <div className="max-w-3xl">
-          <ArticleContent blocks={article.content} />
-        </div>
-      </article>
-
-      {sidebar}
+      <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">
+        <Suspense fallback={<TrendingSidebarSkeleton />}>
+          <TrendingSidebar />
+        </Suspense>
+      </div>
     </div>
   );
 }

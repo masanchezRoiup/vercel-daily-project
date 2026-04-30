@@ -106,6 +106,7 @@ async function fetchArticleByParam(param: string): Promise<Article | null> {
   try {
     const { data } = await apiFetch<Article>(
       `/articles/${encodeURIComponent(param)}`,
+      { next: { revalidate: 86400, tags: ["articles", `article:${param}`] } },
     );
     return data;
   } catch (err) {
@@ -123,12 +124,16 @@ export async function fetchArticleById(id: string): Promise<Article | null> {
 }
 
 export async function fetchTrending(): Promise<Article[]> {
-  const { data } = await apiFetch<Article[]>("/articles/trending");
+  const { data } = await apiFetch<Article[]>("/articles/trending", {
+    next: { revalidate: 300, tags: ["trending"] },
+  });
   return data;
 }
 
 export async function fetchBreaking(): Promise<BreakingNews> {
-  const { data } = await apiFetch<BreakingNews>("/breaking-news");
+  const { data } = await apiFetch<BreakingNews>("/breaking-news", {
+    next: { revalidate: 300, tags: ["breaking"] },
+  });
   return data;
 }
 
