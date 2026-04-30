@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { cacheLife, cacheTag } from "next/cache";
 
 import { getArticleSlugById, getBreaking } from "@/lib/data/articles";
 import {
@@ -11,6 +12,10 @@ import {
 // Async Server Component — fetches breaking news with a two-minute cache so the banner
 // stays stable across quick navigations without a live API call on every page view.
 export async function BreakingBanner() {
+  "use cache";
+  cacheLife({ stale: 300, revalidate: 300, expire: 86400 });
+  cacheTag("breaking");
+
   const item = await getBreaking();
   if (!item) return null;
 

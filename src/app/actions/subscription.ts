@@ -29,8 +29,10 @@ async function activateOrRecreate(existingToken: string | null): Promise<string>
   }
 
   const created = await createSubscription();
-  await setSessionToken(created.token);
-  await activateSubscription(created.token);
+  await Promise.all([
+    setSessionToken(created.token),
+    activateSubscription(created.token),
+  ]);
   return created.token;
 }
 

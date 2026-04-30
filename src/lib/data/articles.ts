@@ -37,7 +37,7 @@ export async function getArticleSlugById(id: string): Promise<string | null> {
 
 export async function getTrending(): Promise<Article[]> {
   "use cache";
-  cacheLife({ stale: 120, revalidate: 120, expire: 240 });
+  cacheLife({ stale: 300, revalidate: 300, expire: 86400 });
   cacheTag("trending");
 
   return fetchTrending();
@@ -45,7 +45,7 @@ export async function getTrending(): Promise<Article[]> {
 
 export async function getBreaking(): Promise<BreakingNews> {
   "use cache";
-  cacheLife({ stale: 120, revalidate: 120, expire: 240 });
+  cacheLife({ stale: 300, revalidate: 300, expire: 86400 });
   cacheTag("breaking");
 
   return fetchBreaking();

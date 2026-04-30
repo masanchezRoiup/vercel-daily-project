@@ -1,3 +1,5 @@
+import { cacheLife, cacheTag } from "next/cache";
+
 import { getTrending } from "@/lib/data/articles";
 import {
   ArticleMiniCard,
@@ -9,6 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 // Trending is fetched as one global cached list so it stays stable while moving
 // between articles; the current article is filtered locally.
 export async function TrendingSidebar({ exclude }: { exclude?: string[] } = {}) {
+  "use cache";
+  cacheLife({ stale: 300, revalidate: 300, expire: 86400 });
+  cacheTag("trending");
+
   const excludedIds = new Set(exclude);
   const articles = (await getTrending())
     .filter((article) => !excludedIds.has(article.id))
@@ -24,7 +30,7 @@ export async function TrendingSidebar({ exclude }: { exclude?: string[] } = {}) 
           Trending
         </h2>
         <span className="font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">
-          2 min cache
+          5 min cache
         </span>
       </div>
       <ol className="space-y-4">
