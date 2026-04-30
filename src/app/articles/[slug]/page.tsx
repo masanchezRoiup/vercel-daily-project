@@ -64,9 +64,12 @@ export async function generateMetadata({
 async function ArticleGate({ article }: { article: Article }) {
   const subscribed = await isSubscribed();
   if (!subscribed) return <PaywallGate />;
+  // Skip the first paragraph block — already rendered as teaser above the Suspense boundary.
+  const firstParaIdx = article.content.findIndex((b) => b.type === "paragraph");
+  const bodyBlocks = firstParaIdx === -1 ? article.content : article.content.filter((_, i) => i !== firstParaIdx);
   return (
     <div className="max-w-3xl">
-      <ArticleContent blocks={article.content} />
+      <ArticleContent blocks={bodyBlocks} />
     </div>
   );
 }
